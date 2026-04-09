@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,8 @@ from app.core.poker import (
     evaluate_best_hand,
     new_shuffled_deck,
 )
+from app.core.ws import manager
+from app.database import AsyncSessionLocal
 from app.models.db import (
     Action,
     ActionType,
@@ -46,11 +48,16 @@ from app.models.schemas import (
     HandResponse,
     JoinGameRequest,
     JoinGameResponse,
+    LeaveResponse,
     PlayerListResponse,
     PlayerPublicView,
     RebuyResponse,
+    SessionRecoveryResponse,
     SidePotView,
+    SitInResponse,
+    SitOutResponse,
     StartGameResponse,
+    TurnOptions,
 )
 
 # ---------------------------------------------------------------------------
@@ -66,6 +73,129 @@ async def _get_game_lock(game_id: str) -> asyncio.Lock:
         if game_id not in _game_locks:
             _game_locks[game_id] = asyncio.Lock()
         return _game_locks[game_id]
+
+
+# ---------------------------------------------------------------------------
+# Turn timeout
+# ---------------------------------------------------------------------------
+
+TURN_TIMEOUT_SECONDS = 60
+
+_turn_timers: dict[str, asyncio.Task] = {}  # key: game_id
+
+
+def _cancel_turn_timer(game_id: str) -> None:
+    task = _turn_timers.pop(game_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
+def _schedule_turn_timer(game_id: str, player_id: str, expires_at: datetime) -> None:
+    _cancel_turn_timer(game_id)
+    task = asyncio.get_event_loop().create_task(
+        _turn_timer_task(game_id, player_id, expires_at)
+    )
+    _turn_timers[game_id] = task
+
+
+async def _turn_timer_task(game_id: str, player_id: str, expires_at: datetime) -> None:
+    """Wait TURN_TIMEOUT_SECONDS then auto check-or-fold for the timed-out player."""
+    try:
+        await asyncio.sleep(TURN_TIMEOUT_SECONDS)
+    except asyncio.CancelledError:
+        return
+
+    async with AsyncSessionLocal() as session:
+        lock = await _get_game_lock(game_id)
+        async with lock:
+            result = await session.execute(
+                select(Game).where(Game.id == game_id).options(selectinload(Game.players))
+            )
+            game = result.scalar_one_or_none()
+            if game is None or game.status != GameStatus.RUNNING:
+                return
+            if game.current_player_id != player_id:
+                # Turn already moved; nothing to do
+                return
+
+            player = next((p for p in game.players if p.id == player_id), None)
+            if player is None or player.status != PlayerStatus.ACTIVE:
+                return
+
+            active = _active_players(game)
+            max_bet = max((p.bet_this_street for p in active), default=0)
+            to_call = max(0, max_bet - player.bet_this_street)
+            auto_action = ActionType.CHECK if to_call == 0 else ActionType.FOLD
+
+            # Apply the action inline (lock already held — cannot call process_action)
+            seq = await _next_action_sequence(session, game)
+            session.add(Action(
+                game_id=game.id,
+                player_id=player.id,
+                hand_number=game.hand_number,
+                street=game.current_street,
+                action_type=auto_action,
+                amount=None,
+                sequence=seq,
+            ))
+
+            acted = game.players_acted
+            if player.id not in acted:
+                acted.append(player.id)
+                game.players_acted = acted
+
+            if auto_action == ActionType.FOLD:
+                player.status = PlayerStatus.FOLDED
+                non_folded = [
+                    p for p in game.players
+                    if p.status not in (PlayerStatus.FOLDED, PlayerStatus.ELIMINATED, PlayerStatus.SITTING_OUT)
+                ]
+                if len(non_folded) == 1:
+                    winner = non_folded[0]
+                    winner.chips += game.pot
+                    game.pot = 0
+                    game.status = GameStatus.PAUSED
+                    game.current_player_id = None
+                    _cancel_turn_timer(game_id)
+                    await session.commit()
+                    await manager.broadcast(game_id, {"type": "action", "data": {
+                        "player_id": player_id, "action": "fold", "amount": None,
+                        "pot": game.pot, "next_player_id": None, "street": game.current_street,
+                    }})
+                    game_state = await _build_game_state(session, game)
+                    await manager.broadcast(game_id, {"type": "game_state", "data": game_state.model_dump()})
+                    return
+            # check or fold-but-game-continues
+            if _is_betting_round_over(game):
+                await _advance_street(session, game)
+            else:
+                next_player = _next_acting_player(game, player.id)
+                if next_player:
+                    game.current_player_id = next_player.id
+
+            await session.commit()
+            await session.refresh(game)
+
+        # Outside lock: broadcast events and schedule next timer
+        await manager.broadcast(game_id, {"type": "action", "data": {
+            "player_id": player_id, "action": auto_action, "amount": None,
+            "pot": game.pot, "next_player_id": game.current_player_id, "street": game.current_street,
+        }})
+        async with AsyncSessionLocal() as s2:
+            result2 = await s2.execute(
+                select(Game).where(Game.id == game_id).options(selectinload(Game.players))
+            )
+            g2 = result2.scalar_one_or_none()
+            if g2:
+                game_state = await _build_game_state(s2, g2)
+                await manager.broadcast(game_id, {"type": "game_state", "data": game_state.model_dump()})
+                if g2.status == GameStatus.RUNNING and g2.current_player_id:
+                    next_expires = datetime.utcnow() + timedelta(seconds=TURN_TIMEOUT_SECONDS)
+                    _schedule_turn_timer(game_id, g2.current_player_id, next_expires)
+                    await manager.broadcast(game_id, {"type": "timer_sync", "data": {
+                        "player_id": g2.current_player_id,
+                        "expires_at": next_expires.isoformat() + "Z",
+                    }})
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +243,25 @@ def _card_models(cards: list[int]) -> list[CardModel]:
 
 async def _build_game_state(session: AsyncSession, game: Game) -> GameStateResponse:
     side_pots = await _load_side_pots(session, game)
+
+    # Compute current_turn_options for the active player
+    turn_options = None
+    if game.status == GameStatus.RUNNING and game.current_player_id:
+        current_player = next(
+            (p for p in game.players if p.id == game.current_player_id), None
+        )
+        if current_player:
+            active = _active_players(game)
+            max_bet = max((p.bet_this_street for p in active), default=0)
+            to_call = max(0, max_bet - current_player.bet_this_street)
+            turn_options = TurnOptions(
+                can_check=(to_call == 0),
+                call_amount=to_call,
+                min_raise=game.last_raise_size or game.big_blind,
+                max_raise=current_player.chips,
+                can_fold=True,
+            )
+
     return GameStateResponse(
         game_id=game.id,
         status=game.status,
@@ -149,6 +298,7 @@ async def _build_game_state(session: AsyncSession, game: Game) -> GameStateRespo
         min_players=game.min_players,
         max_players=game.max_players,
         allow_rebuy=game.allow_rebuy,
+        current_turn_options=turn_options,
     )
 
 
@@ -260,6 +410,20 @@ async def join_game(
     session.add(player)
     await session.commit()
 
+    await manager.broadcast(game_id, {
+        "type": "player_joined",
+        "data": PlayerPublicView(
+            player_id=player_id,
+            name=req.player_name,
+            seat=seat,
+            chips=game.starting_chips,
+            role="player",
+            status=PlayerStatus.ACTIVE,
+            bet_this_street=0,
+            is_current=False,
+        ).model_dump(),
+    })
+
     return JoinGameResponse(
         player_id=player_id,
         player_token=token,
@@ -295,6 +459,15 @@ async def start_game(
 
         await session.refresh(game)
         state = await _build_game_state(session, game)
+
+        if game.status == GameStatus.RUNNING and game.current_player_id:
+            expires_at = datetime.utcnow() + timedelta(seconds=TURN_TIMEOUT_SECONDS)
+            _schedule_turn_timer(game_id, game.current_player_id, expires_at)
+            await manager.broadcast(game_id, {"type": "timer_sync", "data": {
+                "player_id": game.current_player_id,
+                "expires_at": expires_at.isoformat() + "Z",
+            }})
+
         return StartGameResponse(success=True, game_state=state)
 
 
@@ -706,6 +879,19 @@ async def _perform_showdown(session: AsyncSession, game: Game) -> None:
 
     await session.flush()
 
+    # Broadcast showdown reveal so clients can animate hole cards
+    reveal_players = [p for p in game.players if p.id in hand_scores]
+    await manager.broadcast(game.id, {
+        "type": "showdown_reveal",
+        "data": [
+            {
+                "player_id": p.id,
+                "hole_cards": _card_models(p.hole_cards),
+            }
+            for p in reveal_players
+        ],
+    })
+
 
 # ---------------------------------------------------------------------------
 # PROCESS ACTION
@@ -843,6 +1029,7 @@ async def process_action(
 
             game.status = GameStatus.PAUSED
             game.current_player_id = None
+            _cancel_turn_timer(game_id)
             await session.commit()
 
             return ActionResponse(
@@ -866,6 +1053,17 @@ async def process_action(
 
         await session.commit()
         await session.refresh(game)
+
+        # Schedule timer for whoever's turn it is now
+        if game.status == GameStatus.RUNNING and game.current_player_id:
+            expires_at = datetime.utcnow() + timedelta(seconds=TURN_TIMEOUT_SECONDS)
+            _schedule_turn_timer(game_id, game.current_player_id, expires_at)
+            await manager.broadcast(game_id, {"type": "timer_sync", "data": {
+                "player_id": game.current_player_id,
+                "expires_at": expires_at.isoformat() + "Z",
+            }})
+        elif game.status in (GameStatus.PAUSED, GameStatus.FINISHED):
+            _cancel_turn_timer(game_id)
 
         return ActionResponse(
             success=True,
@@ -1024,4 +1222,187 @@ async def start_next_hand(session: AsyncSession, game_id: str, banker_player: Pl
         await session.refresh(game)
 
         state = await _build_game_state(session, game)
+
+        if game.status == GameStatus.RUNNING and game.current_player_id:
+            expires_at = datetime.utcnow() + timedelta(seconds=TURN_TIMEOUT_SECONDS)
+            _schedule_turn_timer(game_id, game.current_player_id, expires_at)
+            await manager.broadcast(game_id, {"type": "timer_sync", "data": {
+                "player_id": game.current_player_id,
+                "expires_at": expires_at.isoformat() + "Z",
+            }})
+
         return StartGameResponse(success=True, game_state=state)
+
+
+# ---------------------------------------------------------------------------
+# SESSION RECOVERY
+# ---------------------------------------------------------------------------
+
+async def get_player_by_token(
+    session: AsyncSession, token: str
+) -> Player | None:
+    result = await session.execute(
+        select(Player).where(Player.token == token)
+    )
+    return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# LOBBY
+# ---------------------------------------------------------------------------
+
+async def list_games(session: AsyncSession) -> list[dict]:
+    """Return games that are WAITING or RUNNING with open seats."""
+    result = await session.execute(
+        select(Game).options(selectinload(Game.players))
+        .where(Game.status.in_([GameStatus.WAITING, GameStatus.RUNNING]))
+    )
+    games = result.scalars().all()
+    out = []
+    for game in games:
+        non_eliminated = [
+            p for p in game.players
+            if p.status != PlayerStatus.ELIMINATED
+        ]
+        player_count = len(non_eliminated)
+        # Include WAITING games always; RUNNING games only if seats remain
+        if game.status == GameStatus.RUNNING and player_count >= game.max_players:
+            continue
+        out.append({
+            "game_id": game.id,
+            "status": game.status,
+            "player_count": player_count,
+            "max_players": game.max_players,
+            "small_blind": game.small_blind,
+            "big_blind": game.big_blind,
+            "created_at": game.created_at,
+        })
+    return out
+
+
+# ---------------------------------------------------------------------------
+# SIT OUT / SIT IN
+# ---------------------------------------------------------------------------
+
+async def sit_out(
+    session: AsyncSession, game_id: str, acting_player: Player
+) -> SitOutResponse:
+    game = await _load_game(session, game_id)
+    if game.status == GameStatus.RUNNING:
+        raise ValueError("Cannot sit out during a running hand; wait until the hand ends")
+    if acting_player.status not in (PlayerStatus.ACTIVE,):
+        raise ValueError("Can only sit out when active")
+    acting_player.status = PlayerStatus.SITTING_OUT
+    await session.commit()
+    game_state = await _build_game_state(session, game)
+    await manager.broadcast(game_id, {"type": "game_state", "data": game_state.model_dump()})
+    return SitOutResponse(success=True)
+
+
+async def sit_in(
+    session: AsyncSession, game_id: str, acting_player: Player
+) -> SitInResponse:
+    game = await _load_game(session, game_id)
+    if acting_player.status != PlayerStatus.SITTING_OUT:
+        raise ValueError("Player is not sitting out")
+    acting_player.status = PlayerStatus.ACTIVE
+    await session.commit()
+    game_state = await _build_game_state(session, game)
+    await manager.broadcast(game_id, {"type": "game_state", "data": game_state.model_dump()})
+    return SitInResponse(success=True)
+
+
+# ---------------------------------------------------------------------------
+# LEAVE GAME
+# ---------------------------------------------------------------------------
+
+async def leave_game(
+    session: AsyncSession, game_id: str, acting_player: Player
+) -> LeaveResponse:
+    lock = await _get_game_lock(game_id)
+    async with lock:
+        game = await _load_game(session, game_id)
+
+        if game.status == GameStatus.WAITING:
+            # Just remove the player from the lobby
+            await session.delete(acting_player)
+            await session.commit()
+            await manager.broadcast(game_id, {
+                "type": "player_left",
+                "data": {"player_id": acting_player.id, "name": acting_player.name, "seat": acting_player.seat},
+            })
+            return LeaveResponse(success=True, message="Left the game")
+
+        # In a running or paused game: fold if needed, then eliminate
+        if acting_player.status == PlayerStatus.ACTIVE and game.status == GameStatus.RUNNING:
+            # If it's the leaving player's turn, fold inline (cannot call process_action — same lock)
+            if game.current_player_id == acting_player.id:
+                acting_player.status = PlayerStatus.FOLDED
+                acted = game.players_acted
+                if acting_player.id not in acted:
+                    acted.append(acting_player.id)
+                    game.players_acted = acted
+
+                # Check if only one non-folded player remains
+                non_folded = [
+                    p for p in game.players
+                    if p.status not in (PlayerStatus.FOLDED, PlayerStatus.ELIMINATED, PlayerStatus.SITTING_OUT)
+                ]
+                if len(non_folded) == 1:
+                    winner = non_folded[0]
+                    winner.chips += game.pot
+                    game.pot = 0
+                    game.status = GameStatus.PAUSED
+                    game.current_player_id = None
+                elif _is_betting_round_over(game):
+                    await _advance_street(session, game)
+                else:
+                    next_player = _next_acting_player(game, acting_player.id)
+                    if next_player:
+                        game.current_player_id = next_player.id
+            else:
+                # Not their turn — fold them out of the hand silently
+                acting_player.status = PlayerStatus.FOLDED
+
+        # Eliminate from future hands
+        acting_player.status = PlayerStatus.ELIMINATED
+        acting_player.chips = 0
+
+        await session.commit()
+
+        await manager.broadcast(game_id, {
+            "type": "player_left",
+            "data": {"player_id": acting_player.id, "name": acting_player.name, "seat": acting_player.seat},
+        })
+        game_state = await _build_game_state(session, game)
+        await manager.broadcast(game_id, {"type": "game_state", "data": game_state.model_dump()})
+
+        return LeaveResponse(success=True, message="Left the game")
+
+
+# ---------------------------------------------------------------------------
+# HAND HISTORY
+# ---------------------------------------------------------------------------
+
+async def get_hand_history(session: AsyncSession, game_id: str) -> list[dict]:
+    result = await session.execute(
+        select(Action, Player.name.label("player_name"))
+        .join(Player, Player.id == Action.player_id)
+        .where(Action.game_id == game_id)
+        .order_by(Action.hand_number.desc(), Action.sequence.asc())
+        .limit(100)
+    )
+    rows = result.all()
+    return [
+        {
+            "hand_number": row.Action.hand_number,
+            "street": row.Action.street,
+            "player_id": row.Action.player_id,
+            "player_name": row.player_name,
+            "action_type": row.Action.action_type,
+            "amount": row.Action.amount,
+            "sequence": row.Action.sequence,
+            "created_at": row.Action.created_at,
+        }
+        for row in rows
+    ]

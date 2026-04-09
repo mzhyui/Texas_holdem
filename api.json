@@ -1,0 +1,1618 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Texas Hold'em Poker API",
+        "description": "REST API for managing Texas Hold'em poker game sessions.",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/games": {
+            "get": {
+                "tags": [
+                    "games",
+                    "lobby"
+                ],
+                "summary": "List Games",
+                "operationId": "list_games_games_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LobbyResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Create Game",
+                "operationId": "create_game_games_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateGameRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CreateGameResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/join": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Join Game",
+                "operationId": "join_game_games__game_id__join_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JoinGameRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JoinGameResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/start": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Start Game",
+                "operationId": "start_game_games__game_id__start_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StartGameResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/next-hand": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Start Next Hand",
+                "operationId": "start_next_hand_games__game_id__next_hand_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StartGameResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/leave": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Leave Game",
+                "operationId": "leave_game_games__game_id__leave_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LeaveResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/sit-out": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Sit Out",
+                "operationId": "sit_out_games__game_id__sit_out_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SitOutResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/sit-in": {
+            "post": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Sit In",
+                "operationId": "sit_in_games__game_id__sit_in_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SitInResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Get Game",
+                "operationId": "get_game_games__game_id__get",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/GameStateResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/hand": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Get Hand",
+                "operationId": "get_hand_games__game_id__hand_get",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HandResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/players": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "List Players",
+                "operationId": "list_players_games__game_id__players_get",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PlayerListResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/history": {
+            "get": {
+                "tags": [
+                    "games"
+                ],
+                "summary": "Get History",
+                "operationId": "get_history_games__game_id__history_get",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HandHistoryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/action": {
+            "post": {
+                "tags": [
+                    "actions"
+                ],
+                "summary": "Perform Action",
+                "operationId": "perform_action_games__game_id__action_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PlayerActionRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ActionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/games/{game_id}/rebuy": {
+            "post": {
+                "tags": [
+                    "actions"
+                ],
+                "summary": "Rebuy",
+                "operationId": "rebuy_games__game_id__rebuy_post",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Game Id"
+                        }
+                    },
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RebuyResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/": {
+            "get": {
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health",
+                "operationId": "health__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/me": {
+            "get": {
+                "tags": [
+                    "players"
+                ],
+                "summary": "Get Me",
+                "operationId": "get_me_me_get",
+                "parameters": [
+                    {
+                        "name": "X-Player-Token",
+                        "in": "header",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "X-Player-Token"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SessionRecoveryResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ActionHistoryItem": {
+                "properties": {
+                    "hand_number": {
+                        "type": "integer",
+                        "title": "Hand Number"
+                    },
+                    "street": {
+                        "type": "string",
+                        "title": "Street"
+                    },
+                    "player_id": {
+                        "type": "string",
+                        "title": "Player Id"
+                    },
+                    "player_name": {
+                        "type": "string",
+                        "title": "Player Name"
+                    },
+                    "action_type": {
+                        "type": "string",
+                        "title": "Action Type"
+                    },
+                    "amount": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Amount"
+                    },
+                    "sequence": {
+                        "type": "integer",
+                        "title": "Sequence"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Created At"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "hand_number",
+                    "street",
+                    "player_id",
+                    "player_name",
+                    "action_type",
+                    "amount",
+                    "sequence",
+                    "created_at"
+                ],
+                "title": "ActionHistoryItem"
+            },
+            "ActionResponse": {
+                "properties": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success"
+                    },
+                    "action": {
+                        "type": "string",
+                        "title": "Action"
+                    },
+                    "amount": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Amount"
+                    },
+                    "new_chips": {
+                        "type": "integer",
+                        "title": "New Chips"
+                    },
+                    "pot": {
+                        "type": "integer",
+                        "title": "Pot"
+                    },
+                    "next_player_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Next Player Id"
+                    },
+                    "street": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Street"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "success",
+                    "action",
+                    "amount",
+                    "new_chips",
+                    "pot",
+                    "next_player_id",
+                    "street",
+                    "message"
+                ],
+                "title": "ActionResponse"
+            },
+            "ActionType": {
+                "type": "string",
+                "enum": [
+                    "check",
+                    "call",
+                    "raise",
+                    "fold",
+                    "all_in",
+                    "rebuy",
+                    "blind"
+                ],
+                "title": "ActionType"
+            },
+            "CardModel": {
+                "properties": {
+                    "value": {
+                        "type": "integer",
+                        "title": "Value"
+                    },
+                    "rank": {
+                        "type": "string",
+                        "title": "Rank"
+                    },
+                    "suit": {
+                        "type": "string",
+                        "title": "Suit"
+                    },
+                    "display": {
+                        "type": "string",
+                        "title": "Display"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "value",
+                    "rank",
+                    "suit",
+                    "display"
+                ],
+                "title": "CardModel"
+            },
+            "CreateGameRequest": {
+                "properties": {
+                    "banker_name": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Banker Name"
+                    },
+                    "min_players": {
+                        "type": "integer",
+                        "maximum": 9.0,
+                        "minimum": 2.0,
+                        "title": "Min Players",
+                        "default": 2
+                    },
+                    "max_players": {
+                        "type": "integer",
+                        "maximum": 9.0,
+                        "minimum": 2.0,
+                        "title": "Max Players",
+                        "default": 9
+                    },
+                    "small_blind": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Small Blind",
+                        "default": 10
+                    },
+                    "big_blind": {
+                        "type": "integer",
+                        "minimum": 2.0,
+                        "title": "Big Blind",
+                        "default": 20
+                    },
+                    "starting_chips": {
+                        "type": "integer",
+                        "minimum": 1.0,
+                        "title": "Starting Chips",
+                        "default": 1000
+                    },
+                    "allow_rebuy": {
+                        "type": "boolean",
+                        "title": "Allow Rebuy",
+                        "default": true
+                    },
+                    "rebuy_amount": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 1.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Rebuy Amount"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "banker_name"
+                ],
+                "title": "CreateGameRequest"
+            },
+            "CreateGameResponse": {
+                "properties": {
+                    "game_id": {
+                        "type": "string",
+                        "title": "Game Id"
+                    },
+                    "banker_token": {
+                        "type": "string",
+                        "title": "Banker Token"
+                    },
+                    "banker_player_id": {
+                        "type": "string",
+                        "title": "Banker Player Id"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "game_id",
+                    "banker_token",
+                    "banker_player_id"
+                ],
+                "title": "CreateGameResponse"
+            },
+            "GameStateResponse": {
+                "properties": {
+                    "game_id": {
+                        "type": "string",
+                        "title": "Game Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "street": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Street"
+                    },
+                    "hand_number": {
+                        "type": "integer",
+                        "title": "Hand Number"
+                    },
+                    "pot": {
+                        "type": "integer",
+                        "title": "Pot"
+                    },
+                    "community_cards": {
+                        "items": {
+                            "$ref": "#/components/schemas/CardModel"
+                        },
+                        "type": "array",
+                        "title": "Community Cards"
+                    },
+                    "side_pots": {
+                        "items": {
+                            "$ref": "#/components/schemas/SidePotView"
+                        },
+                        "type": "array",
+                        "title": "Side Pots"
+                    },
+                    "players": {
+                        "items": {
+                            "$ref": "#/components/schemas/PlayerPublicView"
+                        },
+                        "type": "array",
+                        "title": "Players"
+                    },
+                    "current_player_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Current Player Id"
+                    },
+                    "dealer_seat": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Dealer Seat"
+                    },
+                    "small_blind": {
+                        "type": "integer",
+                        "title": "Small Blind"
+                    },
+                    "big_blind": {
+                        "type": "integer",
+                        "title": "Big Blind"
+                    },
+                    "min_players": {
+                        "type": "integer",
+                        "title": "Min Players"
+                    },
+                    "max_players": {
+                        "type": "integer",
+                        "title": "Max Players"
+                    },
+                    "allow_rebuy": {
+                        "type": "boolean",
+                        "title": "Allow Rebuy"
+                    },
+                    "current_turn_options": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/TurnOptions"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "game_id",
+                    "status",
+                    "street",
+                    "hand_number",
+                    "pot",
+                    "community_cards",
+                    "side_pots",
+                    "players",
+                    "current_player_id",
+                    "dealer_seat",
+                    "small_blind",
+                    "big_blind",
+                    "min_players",
+                    "max_players",
+                    "allow_rebuy"
+                ],
+                "title": "GameStateResponse"
+            },
+            "GameSummary": {
+                "properties": {
+                    "game_id": {
+                        "type": "string",
+                        "title": "Game Id"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "player_count": {
+                        "type": "integer",
+                        "title": "Player Count"
+                    },
+                    "max_players": {
+                        "type": "integer",
+                        "title": "Max Players"
+                    },
+                    "small_blind": {
+                        "type": "integer",
+                        "title": "Small Blind"
+                    },
+                    "big_blind": {
+                        "type": "integer",
+                        "title": "Big Blind"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Created At"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "game_id",
+                    "status",
+                    "player_count",
+                    "max_players",
+                    "small_blind",
+                    "big_blind",
+                    "created_at"
+                ],
+                "title": "GameSummary"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "HandHistoryResponse": {
+                "properties": {
+                    "actions": {
+                        "items": {
+                            "$ref": "#/components/schemas/ActionHistoryItem"
+                        },
+                        "type": "array",
+                        "title": "Actions"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "actions"
+                ],
+                "title": "HandHistoryResponse"
+            },
+            "HandResponse": {
+                "properties": {
+                    "player_id": {
+                        "type": "string",
+                        "title": "Player Id"
+                    },
+                    "hole_cards": {
+                        "items": {
+                            "$ref": "#/components/schemas/CardModel"
+                        },
+                        "type": "array",
+                        "title": "Hole Cards"
+                    },
+                    "community_cards": {
+                        "items": {
+                            "$ref": "#/components/schemas/CardModel"
+                        },
+                        "type": "array",
+                        "title": "Community Cards"
+                    },
+                    "best_hand": {
+                        "anyOf": [
+                            {
+                                "items": {
+                                    "$ref": "#/components/schemas/CardModel"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Best Hand"
+                    },
+                    "hand_description": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Hand Description"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "player_id",
+                    "hole_cards",
+                    "community_cards"
+                ],
+                "title": "HandResponse"
+            },
+            "JoinGameRequest": {
+                "properties": {
+                    "player_name": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "title": "Player Name"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "player_name"
+                ],
+                "title": "JoinGameRequest"
+            },
+            "JoinGameResponse": {
+                "properties": {
+                    "player_id": {
+                        "type": "string",
+                        "title": "Player Id"
+                    },
+                    "player_token": {
+                        "type": "string",
+                        "title": "Player Token"
+                    },
+                    "seat": {
+                        "type": "integer",
+                        "title": "Seat"
+                    },
+                    "starting_chips": {
+                        "type": "integer",
+                        "title": "Starting Chips"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "player_id",
+                    "player_token",
+                    "seat",
+                    "starting_chips"
+                ],
+                "title": "JoinGameResponse"
+            },
+            "LeaveResponse": {
+                "properties": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success"
+                    },
+                    "message": {
+                        "type": "string",
+                        "title": "Message"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "success",
+                    "message"
+                ],
+                "title": "LeaveResponse"
+            },
+            "LobbyResponse": {
+                "properties": {
+                    "games": {
+                        "items": {
+                            "$ref": "#/components/schemas/GameSummary"
+                        },
+                        "type": "array",
+                        "title": "Games"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "games"
+                ],
+                "title": "LobbyResponse"
+            },
+            "PlayerActionRequest": {
+                "properties": {
+                    "action": {
+                        "$ref": "#/components/schemas/ActionType"
+                    },
+                    "amount": {
+                        "anyOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 1.0
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Amount"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "action"
+                ],
+                "title": "PlayerActionRequest"
+            },
+            "PlayerListResponse": {
+                "properties": {
+                    "players": {
+                        "items": {
+                            "$ref": "#/components/schemas/PlayerPublicView"
+                        },
+                        "type": "array",
+                        "title": "Players"
+                    },
+                    "total_chips_in_play": {
+                        "type": "integer",
+                        "title": "Total Chips In Play"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "players",
+                    "total_chips_in_play"
+                ],
+                "title": "PlayerListResponse"
+            },
+            "PlayerPublicView": {
+                "properties": {
+                    "player_id": {
+                        "type": "string",
+                        "title": "Player Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "seat": {
+                        "type": "integer",
+                        "title": "Seat"
+                    },
+                    "chips": {
+                        "type": "integer",
+                        "title": "Chips"
+                    },
+                    "role": {
+                        "type": "string",
+                        "title": "Role"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "bet_this_street": {
+                        "type": "integer",
+                        "title": "Bet This Street"
+                    },
+                    "is_current": {
+                        "type": "boolean",
+                        "title": "Is Current"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "player_id",
+                    "name",
+                    "seat",
+                    "chips",
+                    "role",
+                    "status",
+                    "bet_this_street",
+                    "is_current"
+                ],
+                "title": "PlayerPublicView"
+            },
+            "RebuyResponse": {
+                "properties": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success"
+                    },
+                    "new_chips": {
+                        "type": "integer",
+                        "title": "New Chips"
+                    },
+                    "amount_added": {
+                        "type": "integer",
+                        "title": "Amount Added"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "success",
+                    "new_chips",
+                    "amount_added"
+                ],
+                "title": "RebuyResponse"
+            },
+            "SessionRecoveryResponse": {
+                "properties": {
+                    "player_id": {
+                        "type": "string",
+                        "title": "Player Id"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "game_id": {
+                        "type": "string",
+                        "title": "Game Id"
+                    },
+                    "seat": {
+                        "type": "integer",
+                        "title": "Seat"
+                    },
+                    "role": {
+                        "type": "string",
+                        "title": "Role"
+                    },
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "chips": {
+                        "type": "integer",
+                        "title": "Chips"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "player_id",
+                    "name",
+                    "game_id",
+                    "seat",
+                    "role",
+                    "status",
+                    "chips"
+                ],
+                "title": "SessionRecoveryResponse"
+            },
+            "SidePotView": {
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "title": "Level"
+                    },
+                    "amount": {
+                        "type": "integer",
+                        "title": "Amount"
+                    },
+                    "cap": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Cap"
+                    },
+                    "eligible_player_ids": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Eligible Player Ids"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "level",
+                    "amount",
+                    "cap",
+                    "eligible_player_ids"
+                ],
+                "title": "SidePotView"
+            },
+            "SitInResponse": {
+                "properties": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "success"
+                ],
+                "title": "SitInResponse"
+            },
+            "SitOutResponse": {
+                "properties": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "success"
+                ],
+                "title": "SitOutResponse"
+            },
+            "StartGameResponse": {
+                "properties": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success"
+                    },
+                    "game_state": {
+                        "$ref": "#/components/schemas/GameStateResponse"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "success",
+                    "game_state"
+                ],
+                "title": "StartGameResponse"
+            },
+            "TurnOptions": {
+                "properties": {
+                    "can_check": {
+                        "type": "boolean",
+                        "title": "Can Check"
+                    },
+                    "call_amount": {
+                        "type": "integer",
+                        "title": "Call Amount"
+                    },
+                    "min_raise": {
+                        "type": "integer",
+                        "title": "Min Raise"
+                    },
+                    "max_raise": {
+                        "type": "integer",
+                        "title": "Max Raise"
+                    },
+                    "can_fold": {
+                        "type": "boolean",
+                        "title": "Can Fold"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "can_check",
+                    "call_amount",
+                    "min_raise",
+                    "max_raise",
+                    "can_fold"
+                ],
+                "title": "TurnOptions"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        }
+    }
+}

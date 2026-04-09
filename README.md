@@ -34,6 +34,26 @@ cp .env.example .env
 
 Interactive API docs available at: `http://localhost:8000/docs`
 
+Dev mode (hot-reload frontend, FastAPI backend):
+
+`Terminal 1`
+```bash
+.venv/bin/uvicorn app.main:app --reload
+```
+
+`Terminal 2`
+```bash
+cd frontend && npm run dev
+```
+open http://localhost:5173
+
+## Production (backend serves the built SPA):
+cd frontend && npm run build
+```bash
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+open http://localhost:8000
+
 ---
 
 ## Architecture
@@ -65,6 +85,13 @@ app/
 
 All action endpoints require `X-Player-Token: <uuid>` header.
 
+### Lobby & Session
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/games` | none | List available games (waiting or running with open seats) |
+| GET | `/me` | player | Verify token and get player context (session recovery) |
+
 ### Game Management
 
 | Method | Path | Auth | Description |
@@ -73,9 +100,18 @@ All action endpoints require `X-Player-Token: <uuid>` header.
 | POST | `/games/{id}/join` | none | Join a game |
 | POST | `/games/{id}/start` | banker | Start the game |
 | POST | `/games/{id}/next-hand` | banker | Deal next hand (after a hand ends) |
-| GET | `/games/{id}` | none | Get public game state |
+| GET | `/games/{id}` | none | Get public game state (includes `current_turn_options`) |
 | GET | `/games/{id}/players` | none | List players and chip counts |
 | GET | `/games/{id}/hand` | player | Get your private hole cards |
+| GET | `/games/{id}/history` | none | Last 100 actions for this game |
+
+### Player Lifecycle
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/games/{id}/leave` | player | Leave the game (folds if in a hand, marks eliminated) |
+| POST | `/games/{id}/sit-out` | player | Sit out future hands (only between hands) |
+| POST | `/games/{id}/sit-in` | player | Re-activate after sitting out |
 
 ### Player Actions
 
@@ -83,6 +119,22 @@ All action endpoints require `X-Player-Token: <uuid>` header.
 |--------|------|------|-------------|
 | POST | `/games/{id}/action` | player | Perform an action (check/call/raise/fold/all-in) |
 | POST | `/games/{id}/rebuy` | player | Add chips (if game allows rebuys) |
+
+### `current_turn_options`
+
+`GET /games/{id}` and the `game_state` WebSocket event both include a `current_turn_options` field when a hand is in progress:
+
+```json
+"current_turn_options": {
+  "can_check": false,
+  "call_amount": 100,
+  "min_raise": 200,
+  "max_raise": 500,
+  "can_fold": true
+}
+```
+
+This is `null` when no hand is running. Use it to drive your UI (disable Check button, show "Call 100", set raise-slider bounds).
 
 ---
 
@@ -315,5 +367,32 @@ The `token` query parameter is optional. Authenticated connections receive all e
   }
 }
 ```
+
+**`player_joined`** — broadcast when a new player joins the lobby:
+```json
+{"type": "player_joined", "data": { ...PlayerPublicView... }}
+```
+
+**`player_left`** — broadcast when a player leaves:
+```json
+{"type": "player_left", "data": {"player_id": "...", "name": "Alice", "seat": 2}}
+```
+
+**`showdown_reveal`** — broadcast at showdown so clients can animate hole-card flips:
+```json
+{
+  "type": "showdown_reveal",
+  "data": [
+    {"player_id": "...", "hole_cards": [{"value": 48, "rank": "A", "suit": "c", "display": "Ac"}, ...]},
+    ...
+  ]
+}
+```
+
+**`timer_sync`** — broadcast when the active turn changes so clients can draw a countdown bar:
+```json
+{"type": "timer_sync", "data": {"player_id": "...", "expires_at": "2026-04-08T12:00:00Z"}}
+```
+The server auto check-or-folds on behalf of the timed-out player after **60 seconds**.
 
 If an invalid token is supplied, the server closes the connection with WebSocket close code **4001**.

@@ -10,14 +10,27 @@ from app.models.schemas import (
     CreateGameRequest,
     CreateGameResponse,
     GameStateResponse,
+    HandHistoryResponse,
     HandResponse,
     JoinGameRequest,
     JoinGameResponse,
+    LeaveResponse,
+    LobbyResponse,
     PlayerListResponse,
+    SitInResponse,
+    SitOutResponse,
     StartGameResponse,
 )
 
 router = APIRouter(prefix="/games", tags=["games"])
+
+
+@router.get("", response_model=LobbyResponse, tags=["lobby"])
+async def list_games(
+    session: AsyncSession = Depends(get_db),
+):
+    games = await game_engine.list_games(session)
+    return LobbyResponse(games=games)
 
 
 @router.post("", response_model=CreateGameResponse, status_code=201)
@@ -79,6 +92,42 @@ async def start_next_hand(
     return result
 
 
+@router.post("/{game_id}/leave", response_model=LeaveResponse)
+async def leave_game(
+    game_id: str,
+    player: Player = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        return await game_engine.leave_game(session, game_id, player)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{game_id}/sit-out", response_model=SitOutResponse)
+async def sit_out(
+    game_id: str,
+    player: Player = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        return await game_engine.sit_out(session, game_id, player)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{game_id}/sit-in", response_model=SitInResponse)
+async def sit_in(
+    game_id: str,
+    player: Player = Depends(get_current_player),
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        return await game_engine.sit_in(session, game_id, player)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/{game_id}", response_model=GameStateResponse)
 async def get_game(
     game_id: str,
@@ -111,3 +160,12 @@ async def list_players(
         return await game_engine.get_players(session, game_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{game_id}/history", response_model=HandHistoryResponse)
+async def get_history(
+    game_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    rows = await game_engine.get_hand_history(session, game_id)
+    return HandHistoryResponse(actions=rows)

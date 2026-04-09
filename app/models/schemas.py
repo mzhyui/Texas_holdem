@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.db import ActionType
@@ -82,6 +84,14 @@ class SidePotView(BaseModel):
     eligible_player_ids: list[str]
 
 
+class TurnOptions(BaseModel):
+    can_check: bool
+    call_amount: int
+    min_raise: int
+    max_raise: int
+    can_fold: bool
+
+
 class GameStateResponse(BaseModel):
     game_id: str
     status: str
@@ -98,6 +108,7 @@ class GameStateResponse(BaseModel):
     min_players: int
     max_players: int
     allow_rebuy: bool
+    current_turn_options: TurnOptions | None = None
 
 
 class HandResponse(BaseModel):
@@ -133,3 +144,55 @@ class PlayerListResponse(BaseModel):
 class StartGameResponse(BaseModel):
     success: bool
     game_state: GameStateResponse
+
+
+class GameSummary(BaseModel):
+    game_id: str
+    status: str
+    player_count: int
+    max_players: int
+    small_blind: int
+    big_blind: int
+    created_at: datetime
+
+
+class LobbyResponse(BaseModel):
+    games: list[GameSummary]
+
+
+class SessionRecoveryResponse(BaseModel):
+    player_id: str
+    name: str
+    game_id: str
+    seat: int
+    role: str
+    status: str
+    chips: int
+
+
+class LeaveResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class SitOutResponse(BaseModel):
+    success: bool
+
+
+class SitInResponse(BaseModel):
+    success: bool
+
+
+class ActionHistoryItem(BaseModel):
+    hand_number: int
+    street: str
+    player_id: str
+    player_name: str
+    action_type: str
+    amount: int | None
+    sequence: int
+    created_at: datetime
+
+
+class HandHistoryResponse(BaseModel):
+    actions: list[ActionHistoryItem]
