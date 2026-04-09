@@ -1,6 +1,7 @@
 import type { CardModel, GameStateResponse, HandResponse } from './api'
 
 export type WsEventType =
+  | 'connected'
   | 'game_state'
   | 'action'
   | 'hole_cards'
@@ -39,6 +40,10 @@ class PokerWebSocket {
       : `${proto}://${location.host}/games/${gameId}/ws`
 
     this.ws = new WebSocket(url)
+
+    this.ws.onopen = () => {
+      this.listeners.forEach((l) => l({ type: 'connected', data: null } as unknown as WsEvent))
+    }
 
     this.ws.onmessage = (e) => {
       try {

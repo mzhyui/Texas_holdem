@@ -5,9 +5,11 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      '/games': 'http://localhost:8000',
+      '/games': {
+        target: 'http://localhost:8000',
+        ws: true,           // upgrade /games/{id}/ws to WebSocket
+      },
       '/me': 'http://localhost:8000',
-      '/ws': 'http://localhost:8000',
     },
   },
   build: {

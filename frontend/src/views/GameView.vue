@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
-import type { ActionHistoryItem, CardModel, GameStateResponse } from '../api'
+import type { ActionHistoryItem, CardModel, GameStateResponse, HandResponse } from '../api'
 import { usePokerStore } from '../store'
 import { pokerWs } from '../ws'
 import type { WsEvent } from '../ws'
@@ -26,6 +26,7 @@ const actionLoading = ref(false)
 const actionError = ref<string | null>(null)
 const timerSecs = ref<number | null>(null)
 let timerInterval: ReturnType<typeof setInterval> | null = null
+let pollInterval: ReturnType<typeof setInterval> | null = null
 
 // Is this player the current active player?
 const isMyTurn = computed(() => {
@@ -93,20 +94,30 @@ async function loadHistory() {
 // ─── WebSocket ───────────────────────────────────────────────────────────────
 function handleWsEvent(event: WsEvent) {
   switch (event.type) {
+    case 'connected': {
+      // Re-sync everything on (re)connect — covers tab waking from sleep / reconnect
+      loadGame()
+      loadHistory()
+      if (store.myToken && store.gameId === gameId.value) loadHand()
+      break
+    }
     case 'game_state': {
       store.gameState = event.data as GameStateResponse
+      // Refresh hand so description + best_hand stay current as community cards change
+      if (store.myToken && store.gameId === gameId.value) loadHand()
       break
     }
     case 'hole_cards': {
-      const data = event.data as { player_id: string; hole_cards: CardModel[] }
+      const data = event.data as HandResponse
       if (data.player_id === store.myPlayerId) {
-        store.myHand = event.data as typeof store.myHand
+        store.myHand = data
       }
       break
     }
     case 'action': {
-      // Refresh history on every action
       loadHistory()
+      // Also refresh hand — best_hand description updates after each street
+      if (store.myToken && store.gameId === gameId.value) loadHand()
       break
     }
     case 'showdown_reveal': {
@@ -115,6 +126,8 @@ function handleWsEvent(event: WsEvent) {
       for (const e of entries) {
         showdownCards.value[e.player_id] = e.hole_cards
       }
+      // Refresh own hand for final description
+      if (store.myToken && store.gameId === gameId.value) loadHand()
       break
     }
     case 'timer_sync': {
@@ -139,10 +152,28 @@ function startTimerCountdown(expiresAt: string) {
     if (diff === 0 && timerInterval) {
       clearInterval(timerInterval)
       timerInterval = null
+      // Server will auto check/fold shortly; poll until game_state reflects new turn
+      pollUntilTurnChanges(expiresAt)
     }
   }
   update()
   timerInterval = setInterval(update, 500)
+}
+
+// After timeout fires, poll every 2s for up to 15s until the game state changes
+function pollUntilTurnChanges(timedOutAt: string) {
+  const deadline = Date.now() + 15_000
+  const previousPlayerId = store.gameState?.current_player_id
+  const interval = setInterval(async () => {
+    await Promise.all([loadGame(), loadHistory()])
+    if (store.myToken && store.gameId === gameId.value) loadHand()
+    const changed = store.gameState?.current_player_id !== previousPlayerId
+      || store.gameState?.status !== 'running'
+    if (changed || Date.now() > deadline) {
+      clearInterval(interval)
+      timerSecs.value = null
+    }
+  }, 2000)
 }
 
 let wsOff: (() => void) | null = null
@@ -154,8 +185,9 @@ async function doAction(type: string, amount?: number) {
   actionError.value = null
   try {
     await api.action(gameId.value, store.myToken, type, amount)
-    // WS game_state will update the store; fallback poll just in case
-    await loadGame()
+    // WS game_state/action events will arrive; also eagerly refresh so UI
+    // is never stale if WS is slow or drops a frame
+    await Promise.all([loadGame(), loadHand(), loadHistory()])
   } catch (e: unknown) {
     actionError.value = (e as Error).message
   } finally {
@@ -169,8 +201,7 @@ async function doStartGame() {
   actionError.value = null
   try {
     await api.startGame(gameId.value, store.myToken)
-    await loadGame()
-    await loadHand()
+    await Promise.all([loadGame(), loadHand(), loadHistory()])
   } catch (e: unknown) {
     actionError.value = (e as Error).message
   } finally {
@@ -185,8 +216,7 @@ async function doNextHand() {
   try {
     showdownCards.value = {}
     await api.nextHand(gameId.value, store.myToken)
-    await loadGame()
-    await loadHand()
+    await Promise.all([loadGame(), loadHand(), loadHistory()])
   } catch (e: unknown) {
     actionError.value = (e as Error).message
   } finally {
@@ -250,12 +280,23 @@ onMounted(async () => {
 
   pokerWs.connect(gameId.value, store.gameId === gameId.value ? store.myToken : null)
   wsOff = pokerWs.on(handleWsEvent)
+
+  // Fallback poll: catches missed WS frames during street transitions / showdown
+  pollInterval = setInterval(async () => {
+    const status = store.gameState?.status
+    if (status === 'running' || status === 'paused') {
+      await loadGame()
+      if (store.myToken && store.gameId === gameId.value) loadHand()
+      if (status === 'paused') loadHistory()
+    }
+  }, 3000)
 })
 
 onUnmounted(() => {
   pokerWs.disconnect()
   if (wsOff) wsOff()
   if (timerInterval) clearInterval(timerInterval)
+  if (pollInterval) clearInterval(pollInterval)
 })
 </script>
 

@@ -48,8 +48,8 @@ cd frontend && npm run dev
 open http://localhost:5173
 
 ## Production (backend serves the built SPA):
-cd frontend && npm run build
 ```bash
+cd frontend && npm run build
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 open http://localhost:8000
