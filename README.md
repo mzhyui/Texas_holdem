@@ -66,6 +66,11 @@ app/
 ├── models/
 │   ├── db.py         ORM models: Game, Player, Action, SidePot, HandResult
 │   └── schemas.py    Pydantic v2 request/response schemas
+├── bot/
+│   ├── bot.py        Bot function
+│   ├── *_util.py     Operation util funciton
+│   ├── config.py     Bot config
+│   └── core.py       Core data structure
 ├── core/
 │   ├── poker.py      Pure card logic: deck, hand evaluation (no I/O)
 │   ├── engine.py     Game state machine, all async game operations
@@ -87,7 +92,7 @@ app/
   - TODO 2026-04-10 git.V.d6d1e: Show dashboard with all player record in a game.
 - TODO 2026-04-10 git.V.d6d1e: BOT
   - TODO 2026-04-10 git.V.d6d1e: Integrate LLM bot, with a add/kick bot button (User providing api endpoint, api key, modelname, style selection)
-  - TODO 2026-04-10 git.V.d6d1e: Bot fix: leave when disconnect.
+  ~~- TODO 2026-04-10 git.V.d6d1e: Bot fix: leave when disconnect.~~
 
 ---
 
