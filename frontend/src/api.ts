@@ -91,6 +91,22 @@ export interface HandResultItem {
   pot_won: number
 }
 
+export interface BotInfo {
+  bot_id: string
+  name: string
+  style: string
+  llm_enabled: boolean
+  player_id: string
+}
+
+export interface AddBotRequest {
+  name: string
+  style: string
+  llm_endpoint: string
+  llm_api_key: string
+  llm_model: string
+}
+
 export interface SessionRecoveryResponse {
   player_id: string
   name: string
@@ -160,6 +176,19 @@ export const api = {
 
   getResults: (gameId: string) =>
     req<{ results: HandResultItem[] }>(`/games/${gameId}/results`),
+
+  listBots: (gameId: string) =>
+    req<{ bots: BotInfo[] }>(`/games/${gameId}/bots`),
+
+  addBot: (gameId: string, body: AddBotRequest) =>
+    req<{ bot_id: string; name: string }>(`/games/${gameId}/bots`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  kickBot: (gameId: string, botId: string) =>
+    fetch(`/games/${gameId}/bots/${botId}`, { method: 'DELETE' }),
 
   startGame: (gameId: string, token: string) =>
     req<{ success: boolean; game_state: GameStateResponse }>(`/games/${gameId}/start`, {

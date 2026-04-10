@@ -440,6 +440,7 @@ onUnmounted(() => {
             v-if="isBanker"
             :status="gameState.status"
             :loading="actionLoading"
+            :game-id="gameId"
             @start-game="doStartGame"
             @next-hand="doNextHand"
           />

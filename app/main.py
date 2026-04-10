@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.actions import router as actions_router
+from app.api.bots import router as bots_router
 from app.api.games import router as games_router
 from app.api.ws import router as ws_router
 from app.core import engine as game_engine
@@ -30,6 +31,7 @@ app = FastAPI(
 
 app.include_router(games_router)
 app.include_router(actions_router)
+app.include_router(bots_router)
 app.include_router(ws_router)
 
 
