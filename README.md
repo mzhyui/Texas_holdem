@@ -396,3 +396,13 @@ The `token` query parameter is optional. Authenticated connections receive all e
 The server auto check-or-folds on behalf of the timed-out player after **60 seconds**.
 
 If an invalid token is supplied, the server closes the connection with WebSocket close code **4001**.
+
+
+## TODO
+- TODO 2026-04-10 git.V.d6d1e: UI
+  - TODO 2026-04-10 git.V.d6d1e: Add hand display and chip change at the end of a round. (Highlight winner)
+  - TODO 2026-04-10 git.V.d6d1e: Show dashboard with all player record in a game.
+- TODO 2026-04-10 git.V.d6d1e: BOT
+  - TODO 2026-04-10 git.V.d6d1e: Bot style(aggressive, mild, etc.)
+  - TODO 2026-04-10 git.V.d6d1e: Integrate LLM bot, with a add/kick bot button (User providing api endpoint, api key, modelname, style selection)
+  - TODO 2026-04-10 git.V.d6d1e: Bot fix: leave when disconnect.
