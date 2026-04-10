@@ -92,6 +92,13 @@ class PokerBot:
         except APIError as e:
             LOG.error("Failed to join game: %s", e)
 
+    def _leave(self) -> None:
+        try:
+            self.api.leave_game()
+            LOG.info("Left game successfully.")
+        except APIError as e:
+            LOG.error("Failed to leave game: %s", e)
+
     # ---- main loop --------------------------------------------------------
 
     def run(self, once: bool = False) -> None:
@@ -240,4 +247,5 @@ class PokerBot:
 
     def _handle_sigint(self, *_) -> None:
         LOG.info("Shutting down gracefully...")
+        self._leave()
         self._running = False
