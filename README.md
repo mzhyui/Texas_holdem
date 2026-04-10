@@ -403,6 +403,86 @@ If an invalid token is supplied, the server closes the connection with WebSocket
   - TODO 2026-04-10 git.V.d6d1e: Add hand display and chip change at the end of a round. (Highlight winner)
   - TODO 2026-04-10 git.V.d6d1e: Show dashboard with all player record in a game.
 - TODO 2026-04-10 git.V.d6d1e: BOT
-  - TODO 2026-04-10 git.V.d6d1e: Bot style(aggressive, mild, etc.)
   - TODO 2026-04-10 git.V.d6d1e: Integrate LLM bot, with a add/kick bot button (User providing api endpoint, api key, modelname, style selection)
   - TODO 2026-04-10 git.V.d6d1e: Bot fix: leave when disconnect.
+
+---
+
+## Bot
+
+`bot.py` is a self-contained autonomous player. It polls the REST API and acts using deterministic heuristics or an optional LLM.
+
+### Quick start
+
+```bash
+# Install the one extra dependency
+.venv/bin/pip install requests
+
+# Run (token + game ID are required)
+POKER_TOKEN=tok-alice... \
+POKER_GAME_ID=abc123... \
+.venv/bin/python bot.py
+```
+
+### Play styles
+
+Set `POKER_BOT_STYLE` (or pass `--style`) to control how the bot plays:
+
+| Style | Preflop range | Raise sizing | Semi-bluffs | Call tolerance |
+|-------|--------------|-------------|------------|---------------|
+| `aggressive` | Wide (tier 1–4) | 3.5× pot | Yes | High (≤55%) |
+| `mild` | Balanced (tier 1–3) | 2.5× pot | Yes | Moderate (≤40%) |
+| `passive` | Tight (tier 1–2) | 2.0× pot | No | Low (≤35%) |
+
+```bash
+POKER_BOT_STYLE=aggressive POKER_TOKEN=... POKER_GAME_ID=... .venv/bin/python bot.py
+# or via CLI flag
+.venv/bin/python bot.py --style passive
+```
+
+### All environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POKER_BASE_URL` | `http://localhost:8000` | Server base URL |
+| `POKER_TOKEN` | *(required)* | Player token (`X-Player-Token` header) |
+| `POKER_BANKER_TOKEN` | `POKER_TOKEN` | Banker token for `start`/`next-hand` calls |
+| `POKER_GAME_ID` | *(required)* | Target game ID |
+| `POKER_PLAYER_NAME` | `PokerBot` | Name used when joining as a new player |
+| `POKER_POLL_INTERVAL` | `2` | Seconds between polling cycles |
+| `POKER_BOT_STYLE` | `mild` | Play style: `aggressive` \| `mild` \| `passive` |
+| `POKER_AUTO_START` | `0` | `1` to auto-start a waiting game |
+| `POKER_AUTO_NEXT_HAND` | `0` | `1` to auto-advance after each hand ends |
+| `POKER_AUTO_REBUY` | `0` | `1` to rebuy automatically when stack is low |
+| `POKER_REBUY_THRESHOLD` | `200` | Chip count below which auto-rebuy triggers |
+| `POKER_REBUY_AMOUNT` | server default | Override rebuy amount |
+| `POKER_VERBOSE` | `0` | `1` for verbose debug logging |
+| `OPENAI_ENABLE` | `0` | `1` to enable LLM-assisted decisions |
+| `OPENAI_API_KEY` | | LLM API key |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | LLM-compatible API base URL |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Model name |
+| `OPENAI_TIMEOUT` | `20` | Request timeout in seconds |
+| `OPENAI_TEMPERATURE` | `0.1` | Sampling temperature |
+
+### CLI flags
+
+```
+--style {aggressive,mild,passive}   Override POKER_BOT_STYLE
+--once                              Act once then exit (useful for testing)
+--dry-run                           Compute decisions but don't submit them
+--verbose / -v                      Verbose logging
+```
+
+### LLM mode
+
+When `OPENAI_ENABLE=1`, the bot calls any OpenAI-compatible API before falling back to heuristics. The play style is passed in the prompt so the LLM honours it. Any API-compatible endpoint works (e.g. local Ollama, Anthropic-compatible proxies).
+
+```bash
+OPENAI_ENABLE=1 \
+OPENAI_API_KEY=sk-... \
+OPENAI_MODEL=gpt-4o \
+POKER_BOT_STYLE=aggressive \
+POKER_TOKEN=tok-alice... \
+POKER_GAME_ID=abc123... \
+.venv/bin/python bot.py
+```

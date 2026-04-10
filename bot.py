@@ -14,6 +14,12 @@ the banker).  The bot also accepts POKER_BANKER_TOKEN separately so it can
 call banker-only endpoints (start, next-hand) while playing as a regular
 player — if unset, POKER_TOKEN is tried for both roles.
 
+Bot styles (POKER_BOT_STYLE)
+-----------------------------
+  aggressive  — plays wide preflop, raises large, bluffs draws, re-raises often
+  mild        — (default) balanced TAG play; value-bets, folds weak draws to big bets
+  passive     — calls more, raises rarely, avoids confrontation unless very strong
+
 Schema assumptions (marked [SCHEMA])
 -------------------------------------
 All assumptions are derived from app/models/schemas.py and app/models/db.py.
@@ -58,6 +64,9 @@ def _verbose() -> bool:
 # Configuration
 # ---------------------------------------------------------------------------
 
+VALID_STYLES = {"aggressive", "mild", "passive"}
+
+
 @dataclass
 class Config:
     base_url: str = ""
@@ -71,6 +80,7 @@ class Config:
     auto_rebuy: bool = False
     rebuy_threshold: int = 200
     rebuy_amount: int | None = None
+    style: str = "mild"       # aggressive | mild | passive
 
     # LLM
     llm_enabled: bool = False
@@ -95,6 +105,7 @@ class Config:
         c.rebuy_threshold = int(os.getenv("POKER_REBUY_THRESHOLD", "200"))
         raw_amount = os.getenv("POKER_REBUY_AMOUNT", "")
         c.rebuy_amount = int(raw_amount) if raw_amount else None
+        c.style = os.getenv("POKER_BOT_STYLE", "mild").lower()
 
         c.llm_enabled = os.getenv("OPENAI_ENABLE", "0") == "1"
         c.llm_api_key = os.getenv("OPENAI_API_KEY", "")
@@ -111,25 +122,30 @@ class Config:
             sys.exit("POKER_TOKEN is required")
         if not self.game_id:
             sys.exit("POKER_GAME_ID is required")
+        if self.style not in VALID_STYLES:
+            sys.exit(f"POKER_BOT_STYLE must be one of: {', '.join(sorted(VALID_STYLES))}")
 
 
 # ---------------------------------------------------------------------------
 # Utility: deep_get
 # ---------------------------------------------------------------------------
 
-def deep_get(obj: Any, *keys: str, default: Any = None) -> Any:
-    """Safely traverse nested dicts/lists by key or index."""
+def deep_get(obj: Any, *keys, default: Any = None) -> Any:
+    """Safely traverse nested dicts/lists by key or integer index."""
     cur = obj
     for k in keys:
         if cur is None:
             return default
-        if isinstance(cur, dict):
-            cur = cur.get(k)
-        elif isinstance(k, int) and isinstance(cur, list):
-            try:
-                cur = cur[k]
-            except IndexError:
+        if isinstance(cur, list):
+            if isinstance(k, int):
+                try:
+                    cur = cur[k]
+                except IndexError:
+                    return default
+            else:
                 return default
+        elif isinstance(cur, dict):
+            cur = cur.get(k)
         else:
             return default
     return cur if cur is not None else default
@@ -390,8 +406,77 @@ def preflop_tier(hole: list[Card]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# API Client
+# Style parameters
 # ---------------------------------------------------------------------------
+
+@dataclass
+class StyleParams:
+    """
+    Knobs that differ between bot styles.
+
+    preflop_open_tier      — open-raise when tier <= this (1=premium only … 4=speculative)
+    preflop_call_tier      — call a raise when tier <= this
+    preflop_limp_tier      — limp/call 1BB when tier <= this (rest fold)
+    open_raise_mult        — pot multiplier for open raises
+    value_raise_mult       — pot multiplier when we have a strong made hand
+    bluff_draws            — True: semi-bluff draws; False: just call/check draws
+    draw_call_threshold    — max fraction of pot+call we'll pay to draw (pot odds)
+    call_threshold         — max fraction of pot+call we'll pay generally
+    monster_overbet        — True: shove max with monsters; False: standard raise
+    three_bet_tiers        — open-raise into a raise for tiers <= this
+"""
+    preflop_open_tier: int
+    preflop_call_tier: int
+    preflop_limp_tier: int
+    open_raise_mult: float
+    value_raise_mult: float
+    bluff_draws: bool
+    draw_call_threshold: float
+    call_threshold: float
+    monster_overbet: bool
+    three_bet_tiers: int
+
+
+STYLE_PARAMS: dict[str, StyleParams] = {
+    "aggressive": StyleParams(
+        preflop_open_tier=4,    # open with anything tier 1-4
+        preflop_call_tier=3,    # call 3-bets with tier 1-3
+        preflop_limp_tier=4,    # limp speculative hands instead of folding
+        open_raise_mult=3.5,
+        value_raise_mult=3.0,
+        bluff_draws=True,
+        draw_call_threshold=0.55,   # call up to 55% of pot+call
+        call_threshold=0.50,
+        monster_overbet=True,
+        three_bet_tiers=2,
+    ),
+    "mild": StyleParams(
+        preflop_open_tier=3,    # open tier 1-3
+        preflop_call_tier=2,    # call re-raises only with tier 1-2
+        preflop_limp_tier=3,    # limp tier 3 if free/cheap
+        open_raise_mult=2.5,
+        value_raise_mult=2.5,
+        bluff_draws=True,
+        draw_call_threshold=0.40,
+        call_threshold=0.40,
+        monster_overbet=True,
+        three_bet_tiers=1,
+    ),
+    "passive": StyleParams(
+        preflop_open_tier=2,    # only open with very strong hands
+        preflop_call_tier=2,    # call raises with strong hands
+        preflop_limp_tier=4,    # limp/call anything speculative
+        open_raise_mult=2.0,
+        value_raise_mult=2.0,
+        bluff_draws=False,
+        draw_call_threshold=0.30,
+        call_threshold=0.35,
+        monster_overbet=False,
+        three_bet_tiers=1,
+    ),
+}
+
+
 
 class APIError(Exception):
     pass
@@ -663,16 +748,6 @@ class Decision:
     reason: str = ""
 
 
-def _pot_odds_ok(call: int, pot: int) -> bool:
-    """Return True if pot odds justify a call (roughly ≥ 20% equity needed)."""
-    if call <= 0:
-        return True
-    total = pot + call
-    if total == 0:
-        return True
-    return call / total <= 0.40   # willing to call up to ~40% of pot+call
-
-
 def _choose_raise(s: GameSnapshot, multiplier: float = 2.5) -> int:
     """Pick a raise size clamped to [min_raise, max_raise]."""
     size = int(s.pot * multiplier)
@@ -681,11 +756,16 @@ def _choose_raise(s: GameSnapshot, multiplier: float = 2.5) -> int:
     return size
 
 
-def heuristic_decision(s: GameSnapshot) -> Decision:
+def heuristic_decision(s: GameSnapshot, style: str = "mild") -> Decision:
     """
-    Layered deterministic poker strategy.
-    Returns a validated Decision.
+    Layered deterministic poker strategy, parameterised by play style.
+
+    Styles:
+      aggressive — wide range, large raises, semi-bluffs, high call tolerance
+      mild       — balanced TAG; value-bets, disciplined folds (default)
+      passive    — tight range, small raises, avoids bluffs, low call tolerance
     """
+    sp = STYLE_PARAMS.get(style, STYLE_PARAMS["mild"])
     acts = legal_actions(s)
     if not acts:
         return Decision("fold", None, "heuristic", "no legal actions")
@@ -696,7 +776,6 @@ def heuristic_decision(s: GameSnapshot) -> Decision:
     pot = s.pot or 1
     call = s.call_amount
 
-    # Convenience helpers
     def can(a: str) -> bool:
         return a in acts
 
@@ -705,26 +784,16 @@ def heuristic_decision(s: GameSnapshot) -> Decision:
             return Decision("check", None, "heuristic", "weak hand, free check")
         return Decision("fold", None, "heuristic", "weak hand, fold to bet")
 
-    def do_check_or_call() -> Decision:
-        if can("check"):
-            return Decision("check", None, "heuristic", "marginal, free check")
-        if can("call") and _pot_odds_ok(call, pot):
-            return Decision("call", None, "heuristic", "marginal, pot odds ok")
-        return Decision("fold", None, "heuristic", "marginal, pot odds too wide")
-
-    def do_raise(multiplier: float = 2.5, reason: str = "value") -> Decision:
+    def do_raise(multiplier: float | None = None, reason: str = "value") -> Decision:
+        mult = multiplier if multiplier is not None else sp.value_raise_mult
         if can("raise"):
-            amt = _choose_raise(s, multiplier)
+            amt = _choose_raise(s, mult)
             return Decision("raise", amt, "heuristic", reason)
         if can("call"):
             return Decision("call", None, "heuristic", reason + " (no raise, call)")
         if can("check"):
             return Decision("check", None, "heuristic", reason + " (check)")
         return Decision("all_in", None, "heuristic", reason + " (all-in)")
-
-    def do_bet(reason: str = "value") -> Decision:
-        # "bet" uses raise on this server; same mechanics
-        return do_raise(2.0, reason)
 
     # -----------------------------------------------------------------------
     # PRE-FLOP
@@ -735,31 +804,22 @@ def heuristic_decision(s: GameSnapshot) -> Decision:
 
         tier = preflop_tier(hole)
 
-        if tier == 1:   # Premium: AA KK QQ AKs
-            return do_raise(3.0, f"premium preflop {cards_str(hole)}")
+        # Open-raise range: tiers 1..preflop_open_tier
+        if tier <= sp.preflop_open_tier:
+            mult = sp.open_raise_mult * 1.2 if tier == 1 else sp.open_raise_mult
+            return do_raise(mult, f"tier{tier} preflop {cards_str(hole)}")
 
-        if tier == 2:   # Strong: JJ TT AKo AQs
-            if call <= 3 * s.big_blind:
-                return do_raise(2.5, f"strong preflop {cards_str(hole)}")
-            return do_raise(2.5, f"strong preflop {cards_str(hole)}")
-
-        if tier == 3:   # Medium: 99-77, AQo, AJs, KQo
-            if call == 0:
-                return do_bet("medium preflop")
-            if call <= 2 * s.big_blind:
-                return Decision("call", None, "heuristic", f"medium preflop call {cards_str(hole)}")
-            if can("call") and call <= s.my_chips // 4:
-                return Decision("call", None, "heuristic", "medium preflop marginal call")
-            return do_check_or_fold()
-
-        if tier == 4:   # Speculative: SC, small pairs
+        # Limp / call range: tiers preflop_open_tier+1..preflop_limp_tier
+        if tier <= sp.preflop_limp_tier:
             if call == 0:
                 return Decision("check", None, "heuristic", "speculative, free look")
             if call <= s.big_blind:
-                return Decision("call", None, "heuristic", "speculative, cheap call")
+                return Decision("call", None, "heuristic", "speculative, cheap limp")
+            if sp.preflop_call_tier >= tier and call <= s.my_chips // 4:
+                return Decision("call", None, "heuristic", f"tier{tier} marginal call")
             return do_check_or_fold()
 
-        # tier 5: garbage
+        # Garbage
         return do_check_or_fold()
 
     # -----------------------------------------------------------------------
@@ -774,45 +834,51 @@ def heuristic_decision(s: GameSnapshot) -> Decision:
     oesd = has_oesd(hole, board)
     strong_draw = flush_draw or oesd
 
-    # Strong made hands: two pair or better
+    # Monster hands: full house or better
+    if hand_rank >= FULL_HOUSE:
+        if sp.monster_overbet and can("raise") and s.max_raise >= s.min_raise:
+            return Decision("raise", s.max_raise, "heuristic", f"monster {HAND_NAMES[hand_rank]}")
+        return Decision("all_in", None, "heuristic", f"monster {HAND_NAMES[hand_rank]}")
+
+    # Strong made hands: two pair or better (below full house)
     if hand_rank >= TWO_PAIR:
-        if hand_rank >= FULL_HOUSE:
-            # Monster: raise big or push
-            if can("raise") and s.max_raise >= s.min_raise:
-                amt = s.max_raise  # overbet / push
-                return Decision("raise", amt, "heuristic", f"monster {HAND_NAMES[hand_rank]}")
-            return Decision("all_in", None, "heuristic", f"monster {HAND_NAMES[hand_rank]}")
-        return do_raise(2.5, f"strong {HAND_NAMES[hand_rank]}")
+        return do_raise(sp.value_raise_mult, f"strong {HAND_NAMES[hand_rank]}")
 
     # One pair
     if hand_rank == ONE_PAIR:
         hole_vals = {c.value for c in hole}
         board_vals = [c.value for c in board]
-        # Overpair: both hole cards beat all board cards
         board_max = max(board_vals) if board_vals else 0
+        # Overpair: both hole cards beat all board cards
         if all(v > board_max for v in hole_vals):
-            return do_bet("overpair")
-        # Top pair (one hole card matches highest board card)
+            return do_raise(sp.value_raise_mult, "overpair")
+        # Top pair
         if any(v == board_max for v in hole_vals):
             if call == 0:
-                return do_bet("top pair")
-            if _pot_odds_ok(call, pot):
+                return do_raise(sp.value_raise_mult, "top pair")
+            if call / (pot + call) <= sp.call_threshold:
                 return Decision("call", None, "heuristic", "top pair call")
             return Decision("fold", None, "heuristic", "top pair, price too high")
-        # Under pair / middle pair
+        # Middle/under pair — tighter threshold
         if call == 0:
             return Decision("check", None, "heuristic", "middle pair check")
-        if _pot_odds_ok(call * 2, pot):   # tighter on middle pair
+        if call / (pot + call) <= sp.call_threshold * 0.7:
             return Decision("call", None, "heuristic", "middle pair, ok pot odds")
         return Decision("fold", None, "heuristic", "middle pair, fold to big bet")
 
-    # High card — but has draw
+    # Draw hands
     if strong_draw:
         draw_type = "flush draw" if flush_draw else "OESD"
-        if call == 0:
-            return do_bet(f"semi-bluff {draw_type}")
-        if _pot_odds_ok(call, pot):
-            return Decision("call", None, "heuristic", f"draw call {draw_type}")
+        if sp.bluff_draws:
+            if call == 0:
+                return do_raise(sp.open_raise_mult, f"semi-bluff {draw_type}")
+            if call / (pot + call) <= sp.draw_call_threshold:
+                return Decision("call", None, "heuristic", f"draw call {draw_type}")
+        else:
+            if call == 0:
+                return Decision("check", None, "heuristic", f"passive draw check {draw_type}")
+            if call / (pot + call) <= sp.draw_call_threshold:
+                return Decision("call", None, "heuristic", f"passive draw call {draw_type}")
         return do_check_or_fold()
 
     # High card, no draw
@@ -830,15 +896,20 @@ LLM_SYSTEM = (
     "Rules:\n"
     "- Choose only from the listed legal_actions.\n"
     "- amount must be an integer in [min_raise, max_raise] when action is raise or bet, else null.\n"
-    "- Be chip-EV oriented. Minimize leaks. Never bluff with no equity unless it is clearly profitable.\n"
+    "- The prompt includes a 'style' field — honour it:\n"
+    "    aggressive: wide range, large raises, semi-bluff draws freely\n"
+    "    mild: balanced TAG; value-bet, fold weak hands to big bets\n"
+    "    passive: tight range, small raises, call/check rather than bluff\n"
+    "- Be chip-EV oriented. Minimize leaks.\n"
     "- Return ONLY the JSON object. No prose, no markdown."
 )
 
 
-def build_llm_prompt(s: GameSnapshot, history_snippet: str = "") -> str:
+def build_llm_prompt(s: GameSnapshot, history_snippet: str = "", style: str = "mild") -> str:
     acts = sorted(legal_actions(s))
     hand_rank = best_hand_rank(s.hole, s.community) if s.hole else 0
     prompt_data = {
+        "style": style,
         "street": s.street,
         "hero_cards": cards_str(s.hole),
         "board": cards_str(s.community),
@@ -867,7 +938,7 @@ def llm_decision(s: GameSnapshot, cfg: Config, history_snippet: str = "") -> Dec
     if not cfg.llm_enabled or not cfg.llm_api_key:
         return None
 
-    prompt = build_llm_prompt(s, history_snippet)
+    prompt = build_llm_prompt(s, history_snippet, cfg.style)
     if _verbose():
         LOG.debug("LLM prompt:\n%s", prompt)
 
@@ -1133,8 +1204,8 @@ class PokerBot:
 
         # Fallback to heuristic
         if decision is None:
-            decision = heuristic_decision(s)
-            LOG.info("Heuristic: %s(amount=%s) — %s", decision.action, decision.amount, decision.reason)
+            decision = heuristic_decision(s, self.cfg.style)
+            LOG.info("Heuristic[%s]: %s(amount=%s) — %s", self.cfg.style, decision.action, decision.amount, decision.reason)
 
         if self.dry_run:
             LOG.info("[DRY-RUN] Would submit: %s amount=%s", decision.action, decision.amount)
@@ -1205,6 +1276,7 @@ Environment variables:
   POKER_AUTO_NEXT_HAND "1" to auto-advance to next hand
   POKER_AUTO_REBUY     "1" to auto-rebuy when stack is low
   POKER_REBUY_THRESHOLD Chip threshold for auto-rebuy (default: 200)
+  POKER_BOT_STYLE      Play style: aggressive | mild | passive (default: mild)
   POKER_VERBOSE        "1" for verbose logging
 
   OPENAI_ENABLE        "1" to enable LLM decisions
@@ -1226,6 +1298,12 @@ Environment variables:
         help="Compute decisions but do not submit actions to the server",
     )
     parser.add_argument(
+        "--style",
+        choices=list(VALID_STYLES),
+        default=None,
+        help="Play style (overrides POKER_BOT_STYLE env var)",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging (same as POKER_VERBOSE=1)",
@@ -1234,6 +1312,8 @@ Environment variables:
 
     if args.verbose:
         os.environ["POKER_VERBOSE"] = "1"
+    if args.style:
+        os.environ["POKER_BOT_STYLE"] = args.style
 
     LOG.setLevel(logging.DEBUG if _verbose() else logging.INFO)
 
@@ -1241,8 +1321,9 @@ Environment variables:
     cfg.validate()
 
     LOG.info(
-        "Starting PokerBot | game=%s | llm=%s | dry_run=%s | once=%s",
+        "Starting PokerBot | game=%s | style=%s | llm=%s | dry_run=%s | once=%s",
         cfg.game_id,
+        cfg.style,
         "enabled" if cfg.llm_enabled else "disabled",
         args.dry_run,
         args.once,
