@@ -196,3 +196,17 @@ class ActionHistoryItem(BaseModel):
 
 class HandHistoryResponse(BaseModel):
     actions: list[ActionHistoryItem]
+
+
+class HandResultItem(BaseModel):
+    hand_number: int
+    player_id: str
+    player_name: str
+    hand_description: str | None
+    hole_cards: list[CardModel]
+    best_hand: list[CardModel] | None
+    pot_won: int
+
+
+class HandResultsResponse(BaseModel):
+    results: list[HandResultItem]

@@ -81,6 +81,16 @@ export interface ActionHistoryItem {
   created_at: string
 }
 
+export interface HandResultItem {
+  hand_number: number
+  player_id: string
+  player_name: string
+  hand_description: string | null
+  hole_cards: CardModel[]
+  best_hand: CardModel[] | null
+  pot_won: number
+}
+
 export interface SessionRecoveryResponse {
   player_id: string
   name: string
@@ -147,6 +157,9 @@ export const api = {
 
   getHistory: (gameId: string) =>
     req<{ actions: ActionHistoryItem[] }>(`/games/${gameId}/history`),
+
+  getResults: (gameId: string) =>
+    req<{ results: HandResultItem[] }>(`/games/${gameId}/results`),
 
   startGame: (gameId: string, token: string) =>
     req<{ success: boolean; game_state: GameStateResponse }>(`/games/${gameId}/start`, {

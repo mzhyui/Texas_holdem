@@ -1384,6 +1384,28 @@ async def leave_game(
 # HAND HISTORY
 # ---------------------------------------------------------------------------
 
+async def get_hand_results(session: AsyncSession, game_id: str) -> list[dict]:
+    result = await session.execute(
+        select(HandResult, Player.name.label("player_name"))
+        .join(Player, Player.id == HandResult.player_id)
+        .where(HandResult.game_id == game_id)
+        .order_by(HandResult.hand_number.desc(), HandResult.id.asc())
+    )
+    rows = result.all()
+    return [
+        {
+            "hand_number": row.HandResult.hand_number,
+            "player_id": row.HandResult.player_id,
+            "player_name": row.player_name,
+            "hand_description": row.HandResult.hand_description,
+            "hole_cards": _card_models(row.HandResult.hole_cards),
+            "best_hand": _card_models(row.HandResult.best_hand) if row.HandResult.best_hand else None,
+            "pot_won": row.HandResult.pot_won,
+        }
+        for row in rows
+    ]
+
+
 async def get_hand_history(session: AsyncSession, game_id: str) -> list[dict]:
     result = await session.execute(
         select(Action, Player.name.label("player_name"))

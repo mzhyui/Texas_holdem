@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
-import type { ActionHistoryItem, CardModel, GameStateResponse, HandResponse } from '../api'
+import type { ActionHistoryItem, CardModel, GameStateResponse, HandResponse, HandResultItem } from '../api'
 import { usePokerStore } from '../store'
 import { pokerWs } from '../ws'
 import type { WsEvent } from '../ws'
@@ -22,6 +22,7 @@ const gameState = computed(() => store.gameState)
 const myHand = computed(() => store.myHand)
 
 const history = ref<ActionHistoryItem[]>([])
+const handResults = ref<HandResultItem[]>([])
 const actionLoading = ref(false)
 const actionError = ref<string | null>(null)
 const timerSecs = ref<number | null>(null)
@@ -91,6 +92,15 @@ async function loadHistory() {
   }
 }
 
+async function loadResults() {
+  try {
+    const res = await api.getResults(gameId.value)
+    handResults.value = res.results
+  } catch {
+    // non-critical
+  }
+}
+
 // ─── WebSocket ───────────────────────────────────────────────────────────────
 function handleWsEvent(event: WsEvent) {
   switch (event.type) {
@@ -98,6 +108,7 @@ function handleWsEvent(event: WsEvent) {
       // Re-sync everything on (re)connect — covers tab waking from sleep / reconnect
       loadGame()
       loadHistory()
+      loadResults()
       if (store.myToken && store.gameId === gameId.value) loadHand()
       break
     }
@@ -116,6 +127,7 @@ function handleWsEvent(event: WsEvent) {
     }
     case 'action': {
       loadHistory()
+      loadResults()
       // Also refresh hand — best_hand description updates after each street
       if (store.myToken && store.gameId === gameId.value) loadHand()
       break
@@ -165,7 +177,7 @@ function pollUntilTurnChanges(timedOutAt: string) {
   const deadline = Date.now() + 15_000
   const previousPlayerId = store.gameState?.current_player_id
   const interval = setInterval(async () => {
-    await Promise.all([loadGame(), loadHistory()])
+    await Promise.all([loadGame(), loadHistory(), loadResults()])
     if (store.myToken && store.gameId === gameId.value) loadHand()
     const changed = store.gameState?.current_player_id !== previousPlayerId
       || store.gameState?.status !== 'running'
@@ -187,7 +199,7 @@ async function doAction(type: string, amount?: number) {
     await api.action(gameId.value, store.myToken, type, amount)
     // WS game_state/action events will arrive; also eagerly refresh so UI
     // is never stale if WS is slow or drops a frame
-    await Promise.all([loadGame(), loadHand(), loadHistory()])
+    await Promise.all([loadGame(), loadHand(), loadHistory(), loadResults()])
   } catch (e: unknown) {
     actionError.value = (e as Error).message
   } finally {
@@ -201,7 +213,7 @@ async function doStartGame() {
   actionError.value = null
   try {
     await api.startGame(gameId.value, store.myToken)
-    await Promise.all([loadGame(), loadHand(), loadHistory()])
+    await Promise.all([loadGame(), loadHand(), loadHistory(), loadResults()])
   } catch (e: unknown) {
     actionError.value = (e as Error).message
   } finally {
@@ -216,7 +228,7 @@ async function doNextHand() {
   try {
     showdownCards.value = {}
     await api.nextHand(gameId.value, store.myToken)
-    await Promise.all([loadGame(), loadHand(), loadHistory()])
+    await Promise.all([loadGame(), loadHand(), loadHistory(), loadResults()])
   } catch (e: unknown) {
     actionError.value = (e as Error).message
   } finally {
@@ -273,7 +285,7 @@ async function doSitIn() {
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 onMounted(async () => {
   await recoverSession()
-  await Promise.all([loadGame(), loadHistory()])
+  await Promise.all([loadGame(), loadHistory(), loadResults()])
   if (store.myToken && store.gameId === gameId.value) {
     await loadHand()
   }
@@ -287,7 +299,7 @@ onMounted(async () => {
     if (status === 'running' || status === 'paused') {
       await loadGame()
       if (store.myToken && store.gameId === gameId.value) loadHand()
-      if (status === 'paused') loadHistory()
+      if (status === 'paused') { loadHistory(); loadResults() }
     }
   }, 3000)
 })
@@ -475,7 +487,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Hand history -->
-      <HandHistoryPanel :actions="history" />
+      <HandHistoryPanel :actions="history" :results="handResults" />
     </div>
   </div>
 </template>

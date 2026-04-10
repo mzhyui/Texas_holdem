@@ -12,6 +12,7 @@ from app.models.schemas import (
     GameStateResponse,
     HandHistoryResponse,
     HandResponse,
+    HandResultsResponse,
     JoinGameRequest,
     JoinGameResponse,
     LeaveResponse,
@@ -169,3 +170,12 @@ async def get_history(
 ):
     rows = await game_engine.get_hand_history(session, game_id)
     return HandHistoryResponse(actions=rows)
+
+
+@router.get("/{game_id}/results", response_model=HandResultsResponse)
+async def get_results(
+    game_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    rows = await game_engine.get_hand_results(session, game_id)
+    return HandResultsResponse(results=rows)
