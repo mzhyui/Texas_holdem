@@ -46,7 +46,7 @@ async function fetchGames() {
 
 onMounted(() => {
   fetchGames()
-  pollTimer = setInterval(fetchGames, 5000)
+  pollTimer = setInterval(fetchGames, 15000)
 })
 
 onUnmounted(() => {
@@ -122,10 +122,16 @@ function syncBigBlind() {
     <div class="max-w-4xl mx-auto">
       <div class="flex items-center justify-between mb-8">
         <h1 class="text-3xl font-bold text-yellow-300">Texas Hold'em</h1>
-        <button
-          class="px-4 py-2 bg-green-700 hover:bg-green-600 rounded-lg font-semibold text-sm transition-colors"
-          @click="showCreate = true"
-        >+ Create Game</button>
+        <div class="flex gap-2">
+          <button
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold text-sm transition-colors"
+            @click="fetchGames"
+          >Refresh</button>
+          <button
+            class="px-4 py-2 bg-green-700 hover:bg-green-600 rounded-lg font-semibold text-sm transition-colors"
+            @click="showCreate = true"
+          >+ Create Game</button>
+        </div>
       </div>
 
       <!-- Error -->

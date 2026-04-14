@@ -81,18 +81,18 @@ class AddBotResponse(BaseModel):
 # Blocking HTTP helpers (run via asyncio.to_thread)
 # ---------------------------------------------------------------------------
 
-def _get(base: str, path: str, token: str | None = None) -> dict:
+def _get(sess: _requests.Session, base: str, path: str, token: str | None = None) -> dict:
     headers = {"X-Player-Token": token} if token else {}
-    r = _requests.get(f"{base}{path}", headers=headers, timeout=10)
+    r = sess.get(f"{base}{path}", headers=headers, timeout=10)
     r.raise_for_status()
     return r.json()
 
 
-def _post(base: str, path: str, body: dict | None = None, token: str | None = None) -> dict:
+def _post(sess: _requests.Session, base: str, path: str, body: dict | None = None, token: str | None = None) -> dict:
     headers: dict = {"Content-Type": "application/json"}
     if token:
         headers["X-Player-Token"] = token
-    r = _requests.post(f"{base}{path}", json=body or {}, headers=headers, timeout=10)
+    r = sess.post(f"{base}{path}", json=body or {}, headers=headers, timeout=10)
     r.raise_for_status()
     return r.json()
 
@@ -168,12 +168,15 @@ def _llm_call_sync(cfg: Config, snap: GameSnapshot, snippet: str):
 async def _bot_loop(game_id: str, bot_id: str, base_url: str, cfg: Config) -> None:
     """Async polling loop. Blocking HTTP calls run in a thread pool."""
 
+    sess = _requests.Session()
+    sess.headers.update({"Connection": "keep-alive"})
+
     # Join the game
     try:
-        join_resp = await asyncio.to_thread(_post, base_url, f"/games/{game_id}/join", {"player_name": cfg.player_name})
+        join_resp = await asyncio.to_thread(_post, sess, base_url, f"/games/{game_id}/join", {"player_name": cfg.player_name})
         token = join_resp.get("player_token", "")
         cfg.token = token
-        me_resp = await asyncio.to_thread(_get, base_url, "/me", token)
+        me_resp = await asyncio.to_thread(_get, sess, base_url, "/me", token)
         entry = _bots.get(game_id, {}).get(bot_id)
         if entry:
             entry.token = token
@@ -181,6 +184,7 @@ async def _bot_loop(game_id: str, bot_id: str, base_url: str, cfg: Config) -> No
     except Exception as e:
         LOG.error("Bot %s failed to join game %s: %s", bot_id, game_id, e)
         _bots.get(game_id, {}).pop(bot_id, None)
+        sess.close()
         return
 
     LOG.info("Bot %s (%s) joined game %s", cfg.player_name, bot_id, game_id)
@@ -189,46 +193,74 @@ async def _bot_loop(game_id: str, bot_id: str, base_url: str, cfg: Config) -> No
         while True:
             await asyncio.sleep(cfg.poll_interval)
             try:
-                await _tick(base_url, game_id, bot_id, cfg)
+                keep_running = await _tick(sess, base_url, game_id, bot_id, cfg)
+                if not keep_running:
+                    LOG.info("Bot %s stopping — game finished", bot_id)
+                    break
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 LOG.warning("Bot %s tick error: %s", bot_id, e)
     except asyncio.CancelledError:
+        pass
+    finally:
         try:
-            await asyncio.to_thread(_post, base_url, f"/games/{game_id}/leave", token=cfg.token)
+            await asyncio.to_thread(_post, sess, base_url, f"/games/{game_id}/leave", token=cfg.token)
             LOG.info("Bot %s left game %s", bot_id, game_id)
         except Exception:
             pass
+        sess.close()
         _bots.get(game_id, {}).pop(bot_id, None)
 
 
-async def _tick(base_url: str, game_id: str, bot_id: str, cfg: Config) -> None:
+async def _tick(sess: _requests.Session, base_url: str, game_id: str, bot_id: str, cfg: Config) -> bool:
+    """Run one polling cycle. Returns False when the bot should stop."""
     entry = _bots.get(game_id, {}).get(bot_id)
     if entry is None:
-        raise asyncio.CancelledError
+        return False
 
     token = cfg.token
 
-    game = await asyncio.to_thread(_get, base_url, f"/games/{game_id}")
+    game = await asyncio.to_thread(_get, sess, base_url, f"/games/{game_id}")
     status = game.get("status", "")
 
-    if status not in ("running", "paused"):
-        return
+    # Game over — signal the loop to stop
+    if status == "finished":
+        return False
 
+    if status not in ("running", "paused"):
+        return True
+
+    # Fast-path: skip the 3 extra requests if it's clearly not our turn
+    # and no rebuy check is needed.
+    current_player_id = game.get("current_player_id")
+    my_player_id = entry.player_id
+    allow_rebuy = game.get("allow_rebuy", False)
+    players_list = game.get("players", [])
+    my_player_info = next((p for p in players_list if p.get("player_id") == my_player_id), None)
+    my_chips = my_player_info.get("chips", 1) if my_player_info else 1
+    my_status = my_player_info.get("status", "") if my_player_info else ""
+
+    need_rebuy = allow_rebuy and my_chips == 0 and my_status == "eliminated"
+    is_my_turn = (current_player_id == my_player_id)
+
+    if not is_my_turn and not need_rebuy:
+        return True
+
+    # Fetch the full state only when we actually need to act
     hand_raw: dict = {}
     players_raw: dict = {}
     me_raw: dict = {}
     try:
-        hand_raw = await asyncio.to_thread(_get, base_url, f"/games/{game_id}/hand", token)
+        hand_raw = await asyncio.to_thread(_get, sess, base_url, f"/games/{game_id}/hand", token)
     except Exception:
         pass
     try:
-        players_raw = await asyncio.to_thread(_get, base_url, f"/games/{game_id}/players")
+        players_raw = await asyncio.to_thread(_get, sess, base_url, f"/games/{game_id}/players")
     except Exception:
         pass
     try:
-        me_raw = await asyncio.to_thread(_get, base_url, "/me", token)
+        me_raw = await asyncio.to_thread(_get, sess, base_url, "/me", token)
     except Exception:
         pass
 
@@ -237,25 +269,25 @@ async def _tick(base_url: str, game_id: str, bot_id: str, cfg: Config) -> None:
     # Auto-rebuy when eliminated
     if snap.allow_rebuy and snap.my_chips == 0 and snap.my_status == "eliminated":
         try:
-            await asyncio.to_thread(_post, base_url, f"/games/{game_id}/rebuy", token=token)
+            await asyncio.to_thread(_post, sess, base_url, f"/games/{game_id}/rebuy", token=token)
         except Exception:
             pass
 
     # Skip if hand not active
     hand_active = snap.street and snap.street not in ("", "showdown")
     if not hand_active:
-        return
+        return True
 
     if not snap.is_my_turn:
-        return
+        return True
     if snap.my_status in ("folded", "all_in", "sitting_out", "eliminated"):
-        return
+        return True
 
     # Decide
     decision = None
     if cfg.llm_enabled:
         try:
-            hist = await asyncio.to_thread(_get, base_url, f"/games/{game_id}/history")
+            hist = await asyncio.to_thread(_get, sess, base_url, f"/games/{game_id}/history")
             snippet = history_snippet(hist)
             decision = await asyncio.to_thread(_llm_call_sync, cfg, snap, snippet)
             if decision:
@@ -272,15 +304,17 @@ async def _tick(base_url: str, game_id: str, bot_id: str, cfg: Config) -> None:
         body["amount"] = decision.amount
 
     try:
-        await asyncio.to_thread(_post, base_url, f"/games/{game_id}/action", body, token)
+        await asyncio.to_thread(_post, sess, base_url, f"/games/{game_id}/action", body, token)
     except Exception as e:
         LOG.error("Bot %s action failed: %s", bot_id, e)
         fallback = "check" if snap.can_check else "fold"
         if fallback != decision.action:
             try:
-                await asyncio.to_thread(_post, base_url, f"/games/{game_id}/action", {"action": fallback}, token)
+                await asyncio.to_thread(_post, sess, base_url, f"/games/{game_id}/action", {"action": fallback}, token)
             except Exception:
                 pass
+
+    return True
 
 
 # ---------------------------------------------------------------------------

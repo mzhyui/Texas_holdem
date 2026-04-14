@@ -120,7 +120,7 @@ export interface SessionRecoveryResponse {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(path, options)
+  const res = await fetch(path, { keepalive: true, ...options })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(body.detail ?? res.statusText)

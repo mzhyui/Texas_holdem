@@ -11,12 +11,14 @@ from app.api.bots import router as bots_router
 from app.api.games import router as games_router
 from app.api.ws import router as ws_router
 from app.core import engine as game_engine
+from app.core.game_logger import setup_game_logger
 from app.database import Base, engine, get_db
 from app.models.schemas import SessionRecoveryResponse
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_game_logger()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

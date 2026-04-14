@@ -8,6 +8,7 @@ A REST API backend for managing Texas Hold'em poker game sessions. Built with Fa
 
 - Python 3.12+
 - A `.venv` virtual environment (already created in this repo)
+- nodejs >= 22.x, npm >= 11.x (Install nvm)
 
 ---
 
@@ -54,6 +55,8 @@ cd frontend && npm run build
 ```
 open http://localhost:8000
 
+If a host name should be used, edit `frontend/vite.config.ts`, add `allowedHosts: ['your.server.name'],` under server block
+
 ---
 
 ## Architecture
@@ -90,10 +93,13 @@ app/
 - TODO 2026-04-10 git.V.d6d1e: UI
   ~~- TODO 2026-04-10 git.V.d6d1e: Add hand display and chip change at the end of a round in history. (Highlight winner)~~
   - TODO 2026-04-10 git.V.d6d1e: Show dashboard with all player record in a game.
+  - TODO 2026-04-10 git.V.b1db1: record detailed operation (hand, bet, time durance, etc.) in database
 - TODO 2026-04-10 git.V.d6d1e: BOT
-  - TODO 2026-04-10 git.V.d6d1e: Integrate LLM bot, with a add/kick bot button (User should providing api endpoint, api key, modelname, style selection)
+  ~~- TODO 2026-04-10 git.V.d6d1e: Integrate LLM bot, with a add/kick bot button (User should providing api endpoint, api key, modelname, style selection)~~
   ~~- TODO 2026-04-10 git.V.d6d1e: Bot fix: leave when disconnect.~~
-
+- TODO 2026-04-10 git.V.b1db1: PERFORMANCE
+  - TODO 2026-04-10 git.V.b1db1: Auto close idle/afk games
+  - TODO 2026-04-10 git.V.b1db1: Socket drop/missing package fix
 ---
 
 ## API Reference

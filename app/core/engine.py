@@ -26,6 +26,7 @@ from app.core.poker import (
     evaluate_best_hand,
     new_shuffled_deck,
 )
+from app.core.game_logger import game_log
 from app.core.ws import manager
 from app.database import AsyncSessionLocal
 from app.models.db import (
@@ -138,6 +139,7 @@ async def _turn_timer_task(game_id: str, player_id: str, expires_at: datetime) -
                 amount=None,
                 sequence=seq,
             ))
+            game_log.timeout_action(game, player, auto_action)
 
             acted = game.players_acted
             if player.id not in acted:
@@ -579,6 +581,11 @@ async def _deal_new_hand(session: AsyncSession, game: Game) -> None:
         utg = active[(dealer_idx + 3) % len(active)]
         game.current_player_id = utg.id
 
+    # Log hand start and blind posts
+    game_log.hand_start(game, active)
+    game_log.blind(game, sb_player, sb_amount, "SB")
+    game_log.blind(game, bb_player, bb_amount, "BB")
+
     # Rebuild side pots (clean state for new hand)
     await _delete_current_side_pots(session, game)
 
@@ -753,12 +760,15 @@ async def _advance_street(session: AsyncSession, game: Game) -> None:
     deck = game.deck_state
     community = game.community_cards
 
+    new_cards: list[int] = []
     if next_street == Street.FLOP:
         dealt, deck = deal_cards(deck, 3)
         community = community + dealt
+        new_cards = dealt
     elif next_street in (Street.TURN, Street.RIVER):
         dealt, deck = deal_cards(deck, 1)
         community = community + dealt
+        new_cards = dealt
 
     game.deck_state = deck
     game.community_cards = community
@@ -766,6 +776,8 @@ async def _advance_street(session: AsyncSession, game: Game) -> None:
     if next_street == Street.SHOWDOWN:
         await _perform_showdown(session, game)
         return
+
+    game_log.street_advance(game, new_cards)
 
     # Determine first to act (first active left of dealer)
     active = _acting_players(game)
@@ -876,6 +888,21 @@ async def _perform_showdown(session: AsyncSession, game: Game) -> None:
     game.pot = 0
     game.current_player_id = None
     game.status = GameStatus.PAUSED
+
+    # Log showdown results
+    _active = _active_players(game)
+    game_log.showdown_result(game, [
+        {
+            "id": p.id,
+            "hole_cards": p.hole_cards,
+            "best_hand": best_fives.get(p.id),
+            "hand_description": describe_hand(hand_scores[p.id][0], hand_scores[p.id][1])
+                if p.id in hand_scores and len(community) >= 3 else None,
+            "pot_won": pot_won.get(p.id, 0),
+            "chips_after": p.chips,
+        }
+        for p in _active
+    ])
 
     await session.flush()
 
@@ -991,6 +1018,7 @@ async def process_action(
             amount=actual_amount,
             sequence=seq,
         ))
+        game_log.action(game, acting_player, action_type, actual_amount)
 
         # Track that this player has acted this street
         acted = game.players_acted
@@ -1011,6 +1039,7 @@ async def process_action(
         if len(non_folded) == 1:
             # Award pot to last player
             winner = non_folded[0]
+            pot_amount = game.pot
             winner.chips += game.pot
             game.pot = 0
 
@@ -1021,11 +1050,13 @@ async def process_action(
                 player_id=winner.id,
                 hand_rank=None,
                 hand_description="Won (all others folded)",
-                pot_won=winner.chips - (winner.chips - game.pot) if game.pot > 0 else 0,
+                pot_won=pot_amount,
             )
             hr.hole_cards = winner.hole_cards
             hr.best_hand = None
             session.add(hr)
+
+            game_log.fold_win(game, winner, pot_amount)
 
             game.status = GameStatus.PAUSED
             game.current_player_id = None
@@ -1315,7 +1346,6 @@ async def sit_in(
 # ---------------------------------------------------------------------------
 # LEAVE GAME
 # ---------------------------------------------------------------------------
-
 async def leave_game(
     session: AsyncSession, game_id: str, acting_player: Player
 ) -> LeaveResponse:
@@ -1323,14 +1353,25 @@ async def leave_game(
     async with lock:
         game = await _load_game(session, game_id)
 
+        # Check if the leaving player is the banker
+        is_banker = acting_player.role == "banker"
+
         if game.status == GameStatus.WAITING:
             # Just remove the player from the lobby
             await session.delete(acting_player)
+            # If banker leaves, close the game
+            if is_banker:
+                game.status = GameStatus.FINISHED
             await session.commit()
             await manager.broadcast(game_id, {
                 "type": "player_left",
                 "data": {"player_id": acting_player.id, "name": acting_player.name, "seat": acting_player.seat},
             })
+            if is_banker:
+                await manager.broadcast(game_id, {
+                    "type": "game_closed",
+                    "data": {"reason": "Banker left the game"},
+                })
             return LeaveResponse(success=True, message="Left the game")
 
         # In a running or paused game: fold if needed, then eliminate
@@ -1368,12 +1409,21 @@ async def leave_game(
         acting_player.status = PlayerStatus.ELIMINATED
         acting_player.chips = 0
 
+        # If banker leaves during a running or paused game, close the game
+        if is_banker:
+            game.status = GameStatus.FINISHED
+
         await session.commit()
 
         await manager.broadcast(game_id, {
             "type": "player_left",
             "data": {"player_id": acting_player.id, "name": acting_player.name, "seat": acting_player.seat},
         })
+        if is_banker:
+            await manager.broadcast(game_id, {
+                "type": "game_closed",
+                "data": {"reason": "Banker left the game"},
+            })
         game_state = await _build_game_state(session, game)
         await manager.broadcast(game_id, {"type": "game_state", "data": game_state.model_dump()})
 
